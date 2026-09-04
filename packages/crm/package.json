@@ -1,19 +1,19 @@
 {
-  "name": "@hvac/worker",
+  "name": "@hvac/crm",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx watch src/main.ts",
-    "start": "node dist/main.js",
-    "sync:vapi-assistant": "tsx src/sync-vapi-assistant.ts",
     "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
-  },
-  "dependencies": {
-    "@hvac/db": "workspace:*",
-    "@hvac/voice": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

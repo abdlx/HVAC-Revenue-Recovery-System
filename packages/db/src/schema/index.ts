@@ -4,8 +4,10 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -25,6 +27,45 @@ export const voiceAgentStatus = pgEnum("voice_agent_status", [
   "DISABLED",
 ]);
 export const serviceAreaType = pgEnum("service_area_type", ["ZIP"]);
+export const organizationMemberRole = pgEnum("organization_member_role", [
+  "OWNER",
+  "ADMIN",
+  "DISPATCHER",
+  "VIEWER",
+]);
+export const phoneRouteType = pgEnum("phone_route_type", [
+  "CONDITIONAL_FORWARDING",
+  "TELNYX_SIP",
+  "TEST",
+]);
+export const phoneRouteStatus = pgEnum("phone_route_status", [
+  "DRAFT",
+  "ACTIVE",
+  "DISABLED",
+]);
+export const callDirection = pgEnum("call_direction", ["INBOUND", "OUTBOUND"]);
+export const callSourceType = pgEnum("call_source_type", [
+  "MISSED_CALL_OVERFLOW",
+  "AFTER_HOURS",
+  "ABANDONED_UNBOOKED_CALL",
+  "WEB_LEAD_SPEED_TO_LEAD",
+  "DIRECT",
+  "TEST",
+]);
+export const escalationPriority = pgEnum("escalation_priority", [
+  "NORMAL",
+  "HIGH",
+  "EMERGENCY",
+]);
+export const escalationDestinationType = pgEnum(
+  "escalation_destination_type",
+  ["NUMBER", "SIP"],
+);
+export const integrationProvider = pgEnum("integration_provider", ["JOBBER"]);
+export const integrationConnectionStatus = pgEnum(
+  "integration_connection_status",
+  ["CONNECTING", "ACTIVE", "REFRESH_FAILED", "DISCONNECTED"],
+);
 
 export const organizations = pgTable("organizations", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -33,6 +74,53 @@ export const organizations = pgTable("organizations", {
   timezone: text("timezone").notNull(),
   status: organizationStatus("status").notNull().default("ONBOARDING"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const organizationMembers = pgTable(
+  "organization_members",
+  {
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    authUserId: text("auth_user_id").notNull(),
+    role: organizationMemberRole("role").notNull().default("VIEWER"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.organizationId, table.authUserId] }),
+    index("organization_members_auth_user_idx").on(table.authUserId),
+  ],
+);
+
+export const organizationSettings = pgTable("organization_settings", {
+  organizationId: uuid("organization_id")
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  businessHoursJson: jsonb("business_hours_json")
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default(sql`'{}'::jsonb`),
+  defaultCallFallback: text("default_call_fallback"),
+  recordingPolicy: jsonb("recording_policy")
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default(sql`'{"enabled":false}'::jsonb`),
+  smsPolicy: jsonb("sms_policy")
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default(sql`'{"enabled":false}'::jsonb`),
+  estimatedValuePolicy: jsonb("estimated_value_policy")
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default(sql`'{}'::jsonb`),
+  assistantConfigJson: jsonb("assistant_config_json")
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default(sql`'{}'::jsonb`),
+  configVersion: integer("config_version").notNull().default(1),
+  promptVersion: text("prompt_version").notNull().default("v1"),
+  toolContractVersion: text("tool_contract_version").notNull().default("v1"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -48,6 +136,7 @@ export const voiceAgents = pgTable(
     configVersion: integer("config_version").notNull().default(1),
     configHash: text("config_hash"),
     promptVersion: text("prompt_version").notNull(),
+    toolContractVersion: text("tool_contract_version").notNull().default("v1"),
     status: voiceAgentStatus("status").notNull().default("DRAFT"),
     deployedAt: timestamp("deployed_at", { withTimezone: true }),
   },
@@ -56,7 +145,86 @@ export const voiceAgents = pgTable(
       table.provider,
       table.providerAssistantId,
     ),
+    unique("voice_agents_organization_unique").on(table.organizationId),
     index("voice_agents_organization_idx").on(table.organizationId),
+  ],
+);
+
+export const integrationAccounts = pgTable(
+  "integration_accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    provider: integrationProvider("provider").notNull(),
+    externalAccountId: text("external_account_id").notNull(),
+    accessTokenEncrypted: text("access_token_encrypted"),
+    refreshTokenEncrypted: text("refresh_token_encrypted"),
+    accessExpiresAt: timestamp("access_expires_at", { withTimezone: true }),
+    scopesJson: jsonb("scopes_json").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    tokenVersion: integer("token_version").notNull().default(1),
+    lastRefreshAt: timestamp("last_refresh_at", { withTimezone: true }),
+    status: integrationConnectionStatus("status").notNull().default("CONNECTING"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("integration_accounts_organization_provider_unique").on(
+      table.organizationId,
+      table.provider,
+    ),
+    unique("integration_accounts_provider_external_unique").on(
+      table.provider,
+      table.externalAccountId,
+    ),
+    index("integration_accounts_status_idx").on(table.provider, table.status),
+  ],
+);
+
+export const integrationOauthStates = pgTable(
+  "integration_oauth_states",
+  {
+    stateHash: text("state_hash").primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    provider: integrationProvider("provider").notNull(),
+    codeVerifierEncrypted: text("code_verifier_encrypted").notNull(),
+    redirectUri: text("redirect_uri").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("integration_oauth_states_expiry_idx").on(table.expiresAt),
+    index("integration_oauth_states_organization_idx").on(table.organizationId),
+  ],
+);
+
+export const phoneRoutes = pgTable(
+  "phone_routes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    publicBusinessNumber: text("public_business_number").notNull(),
+    telnyxNumber: text("telnyx_number"),
+    vapiPhoneNumberId: text("vapi_phone_number_id"),
+    sipUri: text("sip_uri"),
+    routeType: phoneRouteType("route_type").notNull(),
+    fallbackNumber: text("fallback_number"),
+    status: phoneRouteStatus("status").notNull().default("DRAFT"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("phone_routes_public_business_number_unique").on(
+      table.publicBusinessNumber,
+    ),
+    unique("phone_routes_vapi_phone_number_unique").on(table.vapiPhoneNumberId),
+    index("phone_routes_organization_idx").on(table.organizationId),
   ],
 );
 
@@ -68,13 +236,89 @@ export const calls = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     vapiCallId: text("vapi_call_id").notNull().unique(),
+    telnyxCallId: text("telnyx_call_id"),
+    direction: callDirection("direction").notNull().default("INBOUND"),
+    sourceType: callSourceType("source_type"),
     callerPhoneE164: text("caller_phone_e164"),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    endedReason: text("ended_reason"),
     assistantConfigVersion: integer("assistant_config_version").notNull(),
     promptVersion: text("prompt_version").notNull(),
+    transcript: text("transcript"),
+    summary: text("summary"),
+    recordingObjectKey: text("recording_object_key"),
+    recordingRetentionUntil: timestamp("recording_retention_until", {
+      withTimezone: true,
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("calls_organization_started_idx").on(table.organizationId, table.startedAt)],
+  (table) => [
+    index("calls_organization_started_idx").on(table.organizationId, table.startedAt),
+    index("calls_telnyx_call_idx").on(table.telnyxCallId),
+  ],
+);
+
+export const callEvents = pgTable(
+  "call_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    callId: uuid("call_id")
+      .notNull()
+      .references(() => calls.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    providerEventId: text("provider_event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    payloadJson: jsonb("payload_json").$type<Record<string, unknown>>().notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("call_events_provider_event_unique").on(
+      table.provider,
+      table.providerEventId,
+    ),
+    index("call_events_call_received_idx").on(table.callId, table.receivedAt),
+    index("call_events_organization_received_idx").on(
+      table.organizationId,
+      table.receivedAt,
+    ),
+  ],
+);
+
+export const escalationRules = pgTable(
+  "escalation_rules",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    reasonCode: text("reason_code").notNull(),
+    priority: escalationPriority("priority").notNull().default("NORMAL"),
+    destinationType: escalationDestinationType("destination_type").notNull(),
+    destinationValue: text("destination_value").notNull(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("escalation_rules_organization_reason_priority_unique").on(
+      table.organizationId,
+      table.reasonCode,
+      table.priority,
+    ),
+    index("escalation_rules_lookup_idx").on(
+      table.organizationId,
+      table.reasonCode,
+      table.priority,
+      table.active,
+    ),
+  ],
 );
 
 export const serviceAreas = pgTable(

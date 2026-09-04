@@ -81,6 +81,13 @@ importers:
         version: 5.9.3
 
   apps/worker:
+    dependencies:
+      '@hvac/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@hvac/voice':
+        specifier: workspace:*
+        version: link:../../packages/voice
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -102,11 +109,29 @@ importers:
         specifier: ^5.0.0
         version: 5.9.3
 
+  packages/crm:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.43
+      tsx:
+        specifier: ^4.0.0
+        version: 4.23.13
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+
   packages/db:
     dependencies:
+      '@hvac/crm':
+        specifier: workspace:*
+        version: link:../crm
       '@hvac/domain':
         specifier: workspace:*
         version: link:../domain
+      '@hvac/voice':
+        specifier: workspace:*
+        version: link:../voice
       drizzle-orm:
         specifier: ^0.44.0
         version: 0.44.7(@types/pg@8.23.1)(pg@8.23.0)
@@ -131,6 +156,18 @@ importers:
         version: 5.9.3
 
   packages/domain:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.43
+      tsx:
+        specifier: ^4.0.0
+        version: 4.23.13
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+
+  packages/voice:
     devDependencies:
       '@types/node':
         specifier: ^20.0.0

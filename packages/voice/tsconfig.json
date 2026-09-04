@@ -7,9 +7,5 @@
     "rootDir": "src",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts"],
-  "references": [
-    { "path": "../../packages/db" },
-    { "path": "../../packages/voice" }
-  ]
+  "include": ["src/**/*.ts"]
 }

@@ -7,8 +7,15 @@ if (!databaseUrl) {
 }
 
 const expectedTables = [
+  "call_events",
   "calls",
+  "escalation_rules",
+  "integration_accounts",
+  "integration_oauth_states",
+  "organization_members",
+  "organization_settings",
   "organizations",
+  "phone_routes",
   "service_areas",
   "voice_agents",
 ] as const;

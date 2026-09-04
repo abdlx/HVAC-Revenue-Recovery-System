@@ -19,10 +19,13 @@
     "db:migrate": "drizzle-kit migrate",
     "db:verify": "tsx src/verify-schema.ts",
     "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@hvac/crm": "workspace:*",
     "@hvac/domain": "workspace:*",
+    "@hvac/voice": "workspace:*",
     "drizzle-orm": "^0.44.0",
     "pg": "^8.0.0"
   },

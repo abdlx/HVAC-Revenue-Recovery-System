@@ -1,6 +1,8 @@
 import {
   createDatabase,
+  PostgresHumanEscalationRepository,
   PostgresServiceAreaRepository,
+  PostgresVapiCallEventRepository,
 } from "@hvac/db";
 import { buildApp } from "./app.js";
 import { parseEnv } from "./env.js";
@@ -8,7 +10,9 @@ import { parseEnv } from "./env.js";
 const env = parseEnv(process.env);
 const { db, pool } = createDatabase(env.DATABASE_URL);
 const app = await buildApp({
-  repository: new PostgresServiceAreaRepository(db),
+  serviceAreaRepository: new PostgresServiceAreaRepository(db),
+  vapiCallEventRepository: new PostgresVapiCallEventRepository(db),
+  humanEscalationRepository: new PostgresHumanEscalationRepository(db),
   vapiServerToken: env.VAPI_SERVER_TOKEN,
   logger: {
     level: env.LOG_LEVEL,

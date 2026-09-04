@@ -5,7 +5,9 @@
     { "path": "./apps/voice-api" },
     { "path": "./apps/worker" },
     { "path": "./packages/contracts" },
+    { "path": "./packages/crm" },
     { "path": "./packages/domain" },
-    { "path": "./packages/db" }
+    { "path": "./packages/db" },
+    { "path": "./packages/voice" }
   ]
 }
