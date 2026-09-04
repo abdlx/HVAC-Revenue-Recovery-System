@@ -19,4 +19,17 @@ const app = await buildApp({
         "req.body.message.customer.number",
       ],
       censor: "[REDACTED]",
- 
+    },
+  },
+});
+
+app.addHook("onClose", async () => {
+  await pool.end();
+});
+
+try {
+  await app.listen({ host: env.HOST, port: env.PORT });
+} catch (error) {
+  app.log.fatal({ err: error }, "voice API failed to start");
+  process.exitCode = 1;
+}

@@ -104,4 +104,7 @@ export const serviceAreas = pgTable(
     ),
     check(
       "service_areas_zip_format_check",
-      sql`${table.type} <> 'ZIP' OR ${table.value} ~ '^[0-9]{5
+      sql`${table.type} <> 'ZIP' OR ${table.value} ~ '^[0-9]{5}$'`,
+    ),
+  ],
+);

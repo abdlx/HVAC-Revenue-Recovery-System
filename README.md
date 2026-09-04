@@ -18,7 +18,8 @@ The first vertical slice is the authenticated Vapi-to-Fastify service-area tool.
 2. Copy `.env.example` to `.env` and provide branch-specific credentials.
 3. Generate a migration with `pnpm db:generate`.
 4. Apply it with the direct connection: `pnpm db:migrate`.
-5. Run the voice API with `pnpm dev:voice-api`.
+5. Verify it with `pnpm --filter @hvac/db db:verify`.
+6. Run the voice API with `pnpm dev:voice-api`.
 
 Use `DATABASE_URL` (pooled) for application requests and
 `DATABASE_URL_UNPOOLED` (direct) for migrations.

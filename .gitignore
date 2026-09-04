@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+**/node_modules/
+/.pnpm-store/
 /.pnp
 .pnp.*
 .yarn/*
@@ -15,6 +17,7 @@
 
 # next.js
 /.next/
+**/.next/
 /out/
 
 # production
@@ -39,6 +42,7 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+**/*.tsbuildinfo
 next-env.d.ts
 .neon
 
