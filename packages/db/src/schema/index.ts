@@ -5,6 +5,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -66,12 +67,35 @@ export const integrationConnectionStatus = pgEnum(
   "integration_connection_status",
   ["CONNECTING", "ACTIVE", "REFRESH_FAILED", "DISCONNECTED"],
 );
+export const crmRecordProvider = pgEnum("crm_record_provider", ["JOBBER"]);
+export const appointmentSlotStatus = pgEnum("appointment_slot_status", [
+  "OFFERED",
+  "HELD",
+  "CONSUMED",
+  "EXPIRED",
+  "INVALIDATED",
+]);
+export const bookingStatus = pgEnum("booking_status", [
+  "PROCESSING",
+  "CONFIRMED",
+  "FAILED",
+  "CANCELLED",
+]);
+export const idempotencyStatus = pgEnum("idempotency_status", [
+  "PROCESSING",
+  "COMPLETED",
+  "FAILED",
+]);
 
 export const organizations = pgTable("organizations", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   timezone: text("timezone").notNull(),
+  address1: text("address_1"),
+  city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
   status: organizationStatus("status").notNull().default("ONBOARDING"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -123,6 +147,33 @@ export const organizationSettings = pgTable("organization_settings", {
   toolContractVersion: text("tool_contract_version").notNull().default("v1"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    actorType: text("actor_type").notNull(),
+    actorId: text("actor_id").notNull(),
+    action: text("action").notNull(),
+    resourceType: text("resource_type").notNull(),
+    resourceId: text("resource_id"),
+    metadataJson: jsonb("metadata_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("audit_log_organization_created_idx").on(
+      table.organizationId,
+      table.createdAt,
+    ),
+    index("audit_log_actor_idx").on(table.actorType, table.actorId),
+  ],
+);
 
 export const voiceAgents = pgTable(
   "voice_agents",
@@ -349,6 +400,252 @@ export const serviceAreas = pgTable(
     check(
       "service_areas_zip_format_check",
       sql`${table.type} <> 'ZIP' OR ${table.value} ~ '^[0-9]{5}$'`,
+    ),
+  ],
+);
+
+export const customers = pgTable(
+  "customers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    crmProvider: crmRecordProvider("crm_provider").notNull(),
+    crmCustomerId: text("crm_customer_id").notNull(),
+    firstName: text("first_name"),
+    lastName: text("last_name"),
+    phoneE164: text("phone_e164").notNull(),
+    email: text("email"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("customers_organization_provider_crm_unique").on(
+      table.organizationId,
+      table.crmProvider,
+      table.crmCustomerId,
+    ),
+    index("customers_organization_phone_idx").on(
+      table.organizationId,
+      table.phoneE164,
+    ),
+  ],
+);
+
+export const properties = pgTable(
+  "properties",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    crmPropertyId: text("crm_property_id").notNull(),
+    address1: text("address_1").notNull(),
+    city: text("city").notNull(),
+    state: text("state").notNull(),
+    postalCode: text("postal_code").notNull(),
+    latitude: numeric("lat", { precision: 9, scale: 6 }),
+    longitude: numeric("lng", { precision: 9, scale: 6 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("properties_organization_crm_unique").on(
+      table.organizationId,
+      table.crmPropertyId,
+    ),
+    index("properties_customer_idx").on(table.customerId),
+  ],
+);
+
+export const services = pgTable(
+  "services",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    active: boolean("active").notNull().default(true),
+    defaultDurationMinutes: integer("default_duration_minutes").notNull(),
+    estimatedTicketValue: numeric("estimated_ticket_value", {
+      precision: 12,
+      scale: 2,
+    }),
+    requiresHuman: boolean("requires_human").notNull().default(false),
+    bookingEnabled: boolean("booking_enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("services_organization_code_unique").on(table.organizationId, table.code),
+    index("services_organization_active_idx").on(table.organizationId, table.active),
+    check(
+      "services_duration_positive_check",
+      sql`${table.defaultDurationMinutes} > 0`,
+    ),
+  ],
+);
+
+export const bookingRules = pgTable(
+  "booking_rules",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    serviceId: uuid("service_id")
+      .notNull()
+      .references(() => services.id, { onDelete: "cascade" }),
+    minLeadMinutes: integer("min_lead_minutes").notNull().default(60),
+    maxHorizonDays: integer("max_horizon_days").notNull().default(30),
+    arrivalWindowMinutes: integer("arrival_window_minutes").notNull().default(120),
+    bufferBeforeMinutes: integer("buffer_before_minutes").notNull().default(0),
+    bufferAfterMinutes: integer("buffer_after_minutes").notNull().default(0),
+    capacity: integer("capacity").notNull().default(1),
+    rulesJson: jsonb("rules_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("booking_rules_organization_service_unique").on(
+      table.organizationId,
+      table.serviceId,
+    ),
+    check("booking_rules_min_lead_check", sql`${table.minLeadMinutes} >= 0`),
+    check("booking_rules_horizon_check", sql`${table.maxHorizonDays} > 0`),
+    check("booking_rules_window_check", sql`${table.arrivalWindowMinutes} > 0`),
+    check("booking_rules_capacity_check", sql`${table.capacity} > 0`),
+  ],
+);
+
+export const leads = pgTable(
+  "leads",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    callId: uuid("call_id").references(() => calls.id, { onDelete: "set null" }),
+    customerId: uuid("customer_id").references(() => customers.id, {
+      onDelete: "set null",
+    }),
+    propertyId: uuid("property_id").references(() => properties.id, {
+      onDelete: "set null",
+    }),
+    source: text("source").notNull(),
+    recoverySource: text("recovery_source"),
+    intent: text("intent"),
+    serviceCode: text("service_code"),
+    urgency: text("urgency"),
+    qualificationStatus: text("qualification_status").notNull().default("NEW"),
+    bookedAt: timestamp("booked_at", { withTimezone: true }),
+    lostReason: text("lost_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("leads_organization_created_idx").on(table.organizationId, table.createdAt),
+    index("leads_call_idx").on(table.callId),
+  ],
+);
+
+export const appointmentSlots = pgTable(
+  "appointment_slots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    callId: uuid("call_id")
+      .notNull()
+      .references(() => calls.id, { onDelete: "cascade" }),
+    serviceId: uuid("service_id")
+      .notNull()
+      .references(() => services.id, { onDelete: "cascade" }),
+    propertyId: uuid("property_id").references(() => properties.id, {
+      onDelete: "set null",
+    }),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    slotTokenHash: text("slot_token_hash").notNull().unique(),
+    status: appointmentSlotStatus("status").notNull().default("OFFERED"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("appointment_slots_call_status_idx").on(table.callId, table.status),
+    index("appointment_slots_expiry_idx").on(table.expiresAt),
+    check("appointment_slots_time_check", sql`${table.endsAt} > ${table.startsAt}`),
+  ],
+);
+
+export const bookings = pgTable(
+  "bookings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    leadId: uuid("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    appointmentSlotId: uuid("appointment_slot_id").references(
+      () => appointmentSlots.id,
+      { onDelete: "set null" },
+    ),
+    crmProvider: crmRecordProvider("crm_provider").notNull(),
+    crmBookingId: text("crm_booking_id"),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    status: bookingStatus("status").notNull().default("PROCESSING"),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    estimatedValue: numeric("estimated_value", { precision: 12, scale: 2 }),
+    failureCode: text("failure_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("bookings_crm_provider_id_unique").on(
+      table.crmProvider,
+      table.crmBookingId,
+    ),
+    unique("bookings_appointment_slot_unique").on(table.appointmentSlotId),
+    index("bookings_organization_created_idx").on(
+      table.organizationId,
+      table.createdAt,
+    ),
+    check("bookings_time_check", sql`${table.endsAt} > ${table.startsAt}`),
+  ],
+);
+
+export const idempotencyKeys = pgTable(
+  "idempotency_keys",
+  {
+    key: text("key").primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    operation: text("operation").notNull(),
+    requestHash: text("request_hash").notNull(),
+    status: idempotencyStatus("status").notNull().default("PROCESSING"),
+    responseJson: jsonb("response_json").$type<Record<string, unknown>>(),
+    failureCode: text("failure_code"),
+    lockedAt: timestamp("locked_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("idempotency_keys_expiry_idx").on(table.expiresAt),
+    index("idempotency_keys_organization_status_idx").on(
+      table.organizationId,
+      table.status,
     ),
   ],
 );

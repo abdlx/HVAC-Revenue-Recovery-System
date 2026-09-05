@@ -6,9 +6,15 @@ export interface CrmAccountContext {
 export interface CustomerMatch {
   externalCustomerId: string;
   displayName: string;
-  phoneE164: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
   properties: Array<{
     externalPropertyId: string;
+    address1: string;
+    city: string;
+    state: string;
+    postalCode: string;
     addressSummary: string;
   }>;
 }

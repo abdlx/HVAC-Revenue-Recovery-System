@@ -1,17 +1,24 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import test from "node:test";
+import { bookingRequestHash } from "@hvac/domain";
 import { and, count, eq } from "drizzle-orm";
 import { createDatabase } from "../client.js";
 import {
+  bookingRules,
+  bookings,
   callEvents,
   calls,
   escalationRules,
   organizationSettings,
   organizations,
   phoneRoutes,
+  services,
   voiceAgents,
 } from "../schema/index.js";
+import { PostgresBookingRepository } from "./booking.js";
+import { PostgresAppointmentSlotRepository } from "./appointment-slots.js";
+import { PostgresCustomerLookupRepository } from "./customer-lookup.js";
 import { PostgresHumanEscalationRepository } from "./human-escalation.js";
 import { PostgresIntegrationRepository } from "./integration.js";
 import {
@@ -180,6 +187,165 @@ test(
 
       assert.equal(eventCount?.value, 1);
       assert.equal(humanEventCount?.value, 1);
+
+      const [callRecord] = await db
+        .select({ id: calls.id })
+        .from(calls)
+        .where(eq(calls.vapiCallId, vapiCallId))
+        .limit(1);
+      assert.ok(callRecord);
+      const [service] = await db
+        .insert(services)
+        .values({
+          organizationId,
+          code: "AC_REPAIR",
+          name: "Air conditioning repair",
+          defaultDurationMinutes: 60,
+          estimatedTicketValue: "350.00",
+        })
+        .returning({ id: services.id });
+      assert.ok(service);
+      await db.insert(bookingRules).values({
+        organizationId,
+        serviceId: service.id,
+        minLeadMinutes: 60,
+        maxHorizonDays: 30,
+        arrivalWindowMinutes: 120,
+        capacity: 1,
+        rulesJson: {
+          weeklyHours: {
+            MONDAY: [{ start: "09:00", end: "17:00" }],
+          },
+          blackoutDates: [],
+        },
+      });
+      const customerLookupRepository = new PostgresCustomerLookupRepository(db);
+      const customerContext = await customerLookupRepository.loadContext(vapiCallId);
+      assert.ok(customerContext);
+      assert.equal(customerContext.organizationId, organizationId);
+      assert.equal(customerContext.callerPhoneE164, "+16025551234");
+      assert.equal(
+        await customerLookupRepository.saveMatch(
+          { ...customerContext, organizationId: otherOrganizationId },
+          {
+            externalCustomerId: "forged-customer",
+            displayName: "Forged Customer",
+            properties: [],
+          },
+          new Date("2026-09-05T11:59:59.000Z"),
+        ),
+        null,
+      );
+      const persistedCustomer = await customerLookupRepository.saveMatch(
+        customerContext,
+        {
+          externalCustomerId: `jobber-customer-${randomUUID()}`,
+          displayName: "Integration Customer",
+          firstName: "Integration",
+          lastName: "Customer",
+          properties: [
+            {
+              externalPropertyId: `jobber-property-${randomUUID()}`,
+              address1: "123 Test Avenue",
+              city: "Phoenix",
+              state: "AZ",
+              postalCode: "85032",
+              addressSummary: "123 Test Avenue, Phoenix, AZ 85032",
+            },
+          ],
+        },
+        new Date("2026-09-05T12:00:00.000Z"),
+      );
+      assert.ok(persistedCustomer);
+      const customerId = persistedCustomer.customerRef;
+      const propertyId = persistedCustomer.properties[0]?.propertyRef;
+      assert.ok(propertyId);
+      const slotToken = `slot_${randomUUID()}`;
+      const appointmentSlotRepository = new PostgresAppointmentSlotRepository(db);
+      const availabilityContext =
+        await appointmentSlotRepository.loadAvailabilityContext({
+          vapiCallId,
+          serviceCode: "AC_REPAIR",
+          propertyRef: propertyId,
+        });
+      assert.ok(availabilityContext);
+      assert.equal(availabilityContext.policy.timeZone, "America/Phoenix");
+      assert.equal(
+        availabilityContext.policy.weeklyHours.MONDAY?.[0]?.start,
+        "09:00",
+      );
+      await appointmentSlotRepository.replaceOffers(availabilityContext, [
+        {
+          tokenHash: createHash("sha256").update(slotToken).digest("hex"),
+          startsAt: new Date("2026-09-07T16:00:00.000Z"),
+          endsAt: new Date("2026-09-07T18:00:00.000Z"),
+          expiresAt: new Date("2026-09-06T12:00:00.000Z"),
+        },
+      ]);
+
+      const bookingRequest = {
+        vapiCallId,
+        toolCallId: "booking-tool-1",
+        slotToken,
+        customerRef: customerId,
+        propertyRef: propertyId,
+        serviceCode: "AC_REPAIR",
+        callerConfirmed: true,
+        summary: "AC is running but not cooling.",
+      };
+      const bookingRepository = new PostgresBookingRepository(db);
+      const bookingHash = bookingRequestHash(bookingRequest);
+      const acquiredBooking = await bookingRepository.begin(
+        bookingRequest,
+        bookingHash,
+        new Date("2026-09-05T12:00:00.000Z"),
+      );
+      assert.equal(acquiredBooking.status, "acquired");
+      assert.ok(acquiredBooking.status === "acquired");
+      assert.equal(
+        (
+          await bookingRepository.begin(
+            bookingRequest,
+            bookingHash,
+            new Date("2026-09-05T12:00:01.000Z"),
+          )
+        ).status,
+        "in_progress",
+      );
+      const confirmedResult = {
+        status: "confirmed" as const,
+        bookingId: acquiredBooking.context.localBookingId,
+        crmBookingId: `jobber-job-${randomUUID()}`,
+        startsAt: acquiredBooking.context.startsAt.toISOString(),
+        endsAt: acquiredBooking.context.endsAt.toISOString(),
+      };
+      await bookingRepository.complete(
+        acquiredBooking.context,
+        confirmedResult.crmBookingId,
+        confirmedResult,
+        new Date("2026-09-05T12:00:02.000Z"),
+      );
+      assert.deepEqual(
+        await bookingRepository.begin(
+          bookingRequest,
+          bookingHash,
+          new Date("2026-09-05T12:00:03.000Z"),
+        ),
+        { status: "completed", result: confirmedResult },
+      );
+      assert.deepEqual(
+        await bookingRepository.begin(
+          bookingRequest,
+          "different-request-hash",
+          new Date("2026-09-05T12:00:04.000Z"),
+        ),
+        { status: "rejected", reason: "REQUEST_MISMATCH" },
+      );
+      const [bookingCount] = await db
+        .select({ value: count() })
+        .from(bookings)
+        .where(eq(bookings.organizationId, organizationId));
+      assert.equal(bookingCount?.value, 1);
 
       const assistantRepository = new PostgresAssistantSyncRepository(db);
       const syncTarget = await assistantRepository.loadTarget(organizationId);

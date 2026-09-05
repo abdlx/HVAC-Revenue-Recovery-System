@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "HVAC Revenue Recovery",
+  title: "Revenue Recovery | HVAC Operations",
   description: "Recover missed and after-hours HVAC demand.",
 };
 
@@ -25,7 +25,7 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body>{children}</body>
     </html>
   );
 }

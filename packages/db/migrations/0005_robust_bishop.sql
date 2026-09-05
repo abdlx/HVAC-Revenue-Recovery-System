@@ -1,0 +1,1 @@
+ALTER TYPE "public"."appointment_slot_status" ADD VALUE 'HELD' BEFORE 'CONSUMED';

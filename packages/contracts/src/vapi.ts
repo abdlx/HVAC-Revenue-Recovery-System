@@ -8,6 +8,31 @@ export const checkServiceAreaParametersSchema = z
   })
   .strict();
 
+export const lookupCustomerParametersSchema = z.object({}).strict();
+
+const serviceCodeSchema = z.string().trim().regex(/^[A-Z0-9_]{2,64}$/);
+const localReferenceSchema = z.string().uuid();
+
+export const getAvailableSlotsParametersSchema = z
+  .object({
+    service_code: serviceCodeSchema,
+    property_ref: localReferenceSchema,
+    preferred_date: z.iso.date().optional(),
+    day_part: z.enum(["MORNING", "AFTERNOON", "EVENING"]).optional(),
+  })
+  .strict();
+
+export const createBookingParametersSchema = z
+  .object({
+    slot_token: z.string().regex(/^slot_[A-Za-z0-9_-]{32,128}$/),
+    customer_ref: localReferenceSchema,
+    property_ref: localReferenceSchema,
+    service_code: serviceCodeSchema,
+    caller_confirmed: z.boolean(),
+    summary: z.string().trim().min(1).max(1_000),
+  })
+  .strict();
+
 export const requestHumanParametersSchema = z
   .object({
     reason_code: z.enum([
@@ -88,6 +113,18 @@ export const vapiServerEventEnvelopeSchema = z.object({
 
 export type CheckServiceAreaParameters = z.infer<
   typeof checkServiceAreaParametersSchema
+>;
+
+export type LookupCustomerParameters = z.infer<
+  typeof lookupCustomerParametersSchema
+>;
+
+export type GetAvailableSlotsParameters = z.infer<
+  typeof getAvailableSlotsParametersSchema
+>;
+
+export type CreateBookingParameters = z.infer<
+  typeof createBookingParametersSchema
 >;
 
 export type RequestHumanParameters = z.infer<

@@ -1,4 +1,5 @@
 export * from "./provider.js";
+export * from "./domain-adapters.js";
 export * from "./integration-repository.js";
 export * from "./token-cipher.js";
 export * from "./jobber/client.js";

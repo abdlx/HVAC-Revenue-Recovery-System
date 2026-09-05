@@ -29,6 +29,27 @@
       "when": 1788553722463,
       "tag": "0003_narrow_adam_destine",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788594780490,
+      "tag": "0004_skinny_barracuda",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788595010282,
+      "tag": "0005_robust_bishop",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788597169578,
+      "tag": "0006_nervous_onslaught",
+      "breakpoints": true
     }
   ]
 }
